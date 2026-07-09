@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioPredictor V3.6</title>
+    <script src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #ffffff; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 90%; max-width: 1200px; display: flex; gap: 20px; flex-wrap: wrap; }
+        .panel { background-color: #1e1e1e; padding: 20px; border-radius: 8px; flex: 1; min-width: 300px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h1 { color: #4CAF50; text-align: center; width: 100%; margin-bottom: 30px; }
+        h3 { margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        label { display: block; margin-top: 15px; color: #aaaaaa; font-weight: bold; }
+        input, textarea { width: 100%; padding: 10px; margin-top: 5px; background-color: #2d2d2d; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
+        button { margin-top: 20px; width: 100%; padding: 12px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; font-weight: bold; transition: background 0.3s; }
+        button:hover { background-color: #45a049; }
+        #result { margin-top: 20px; padding: 15px; border-radius: 4px; text-align: center; font-size: 18px; font-weight: bold; display: none; }
+        .viewer_3Dmoljs { width: 100%; height: 500px; background-color: #000; border-radius: 8px; position: relative; border: 1px solid #333; }
+        .viewer-error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ff5555; display: none; text-align: center;}
+    </style>
+</head>
+<body>
+
+    <h1>🧬 BioPredictor V3.6 - Drug Interaction Predictor</h1>
+
+    <div class="container">
+        <div class="panel">
+            <h3>🧪 Chemical & Biological Inputs</h3>
+            
+            <label>Drug SMILES String:</label>
+            <input type="text" id="smiles" value="CC1=C(C=C(C=C1)NC(=O)C2=CC=C(C=C2)CN3CCN(CC3)C)NC4=NC=CC(=N4)C5=CN=CC=C5" placeholder="e.g., Imatinib SMILES">
+            
+            <label>Protein Target (PDB ID):</label>
+            <input type="text" id="pdb_id" value="1IEP" placeholder="e.g., 1IEP (ABL1 Kinase)">
+            
+            <label>Protein Amino Acid Sequence:</label>
+            <textarea id="sequence" rows="5">MLEICLKLVGCKSKKGLSSSSSCYLEEALQRPVASDFEPQGLSEAARWNSKENLLAGPSENDPNLFVALYDFVASGDNTLSITKGEKLRVLGYNHNGEWCEAQTKNGQGWVPSNYITPVNSLEKHSWYHGPVSRNAAEYLLSSGINGSFLVRESESSPGQRSISLRYEGRVYHYRINTASDGKLYVSSESRFNTLAELVHHHSTVADGLITTLHYPAPKRNKPTVYGVSPNYDKWEMERTDITMKHKLGGGQYGEVYEGVWKKYSLTVAVKTLKEDTMEVEEFLKEAAVMKEIKHPNLVQLLGVCTREPPFYIITEFMTYGNLLDYLRECNRQEVNAVVLLYMATQISSAMEYLEKKNFIHRDLAARNCLVGENHLVKVADFGLSRLMTGDTYTAHAGAKFPIKWTAPESLAYNKFSIKSDVWAFGVLLWEIATYGMSPYPGIDLSQVYELLEKDYRMERPEGCPEKVYELMRACWQWNPSDRPSFAEIHQAFETMFQESSISDEVEKELGKQGVRGAVSTLLQAPELPTKTRT</textarea>
+
+            <button onclick="runPrediction()">Predict Interaction</button>
+
+            <div id="result"></div>
+        </div>
+
+        <div class="panel">
+            <h3>🔬 3D Target Visualization</h3>
+            <div id="viewer" class="viewer_3Dmoljs">
+                <div id="viewer-error" class="viewer-error">❌ Could not load PDB structure.<br><small>Check if the PDB ID is valid.</small></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize 3Dmol.js viewer
+        let glviewer = $3Dmol.createViewer("viewer", { defaultcolors: $3Dmol.rasmolElementColors });
+
+        // Bulletproof PDB Fetcher
+        async function loadPDB(pdbId) {
+            glviewer.clear();
+            document.getElementById('viewer-error').style.display = 'none';
+            
+            try {
+                // Fetch directly from the official RCSB PDB server
+                const response = await fetch(`https://files.rcsb.org/download/${pdbId.toUpperCase()}.pdb`);
+                
+                if (!response.ok) throw new Error("Invalid PDB ID");
+                
+                const pdbData = await response.text();
+                
+                // Manually load the string data into the viewer
+                glviewer.addModel(pdbData, "pdb");
+                
+                // Professional styling: Spectrum ribbon for protein, thick sticks for drug ligands
+                glviewer.setStyle({chain: 'A'}, {cartoon: {color: 'spectrum'}});
+                glviewer.setStyle({hetflag: true}, {stick: {colorscheme: 'greenCarbon', radius: 0.3}});
+                
+                glviewer.zoomTo();
+                glviewer.render();
+                
+            } catch(e) {
+                console.error("Failed to load 3D Structure:", e);
+                glviewer.clear();
+                glviewer.render();
+                document.getElementById('viewer-error').style.display = 'block';
+            }
+        }
+
+        // Load default protein on startup (1IEP - ABL1 Kinase)
+        loadPDB('1IEP');
+
+        async function runPrediction() {
+            const smiles = document.getElementById('smiles').value;
+            const sequence = document.getElementById('sequence').value;
+            const pdb_id = document.getElementById('pdb_id').value;
+            const resultDiv = document.getElementById('result');
+
+            // Reset UI State
+            resultDiv.style.display = 'block';
+            resultDiv.style.backgroundColor = '#333';
+            resultDiv.style.border = '1px solid #444';
+            resultDiv.innerHTML = "⏳ AI is calculating binding affinity...";
+
+            // Update the 3D viewer with the newly requested PDB ID
+            if(pdb_id.trim() !== "") {
+                loadPDB(pdb_id);
+            }
+
+            // Call the Flask Backend
+            try {
+                const response = await fetch('http://127.0.0.1:5000/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ smiles: smiles, sequence: sequence })
+                });
+
+                if(!response.ok) throw new Error("Network response was not ok");
+                
+                const data = await response.json();
+                
+                // Format the result visually
+                if(data.prediction.includes("BINDING LIKELY")) {
+                    resultDiv.style.backgroundColor = 'rgba(76, 175, 80, 0.2)';
+                    resultDiv.style.border = '1px solid #4CAF50';
+                } else {
+                    resultDiv.style.backgroundColor = 'rgba(244, 67, 54, 0.2)';
+                    resultDiv.style.border = '1px solid #F44336';
+                }
+
+                resultDiv.innerHTML = `${data.prediction}<br><span style="font-size: 14px; font-weight: normal; color: #ddd;">AI Confidence: ${data.probability.toFixed(2)}%</span>`;
+            } catch (error) {
+                resultDiv.style.backgroundColor = 'rgba(244, 67, 54, 0.2)';
+                resultDiv.style.border = '1px solid #F44336';
+                resultDiv.innerHTML = "❌ Error connecting to backend AI.";
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>
